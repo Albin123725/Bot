@@ -136,7 +136,6 @@ function isCreativeMode() {
 async function ensureCreativeMode() {
   if (!currentBot?.player) return;
   
-  // Prevent spam - only switch every 30 seconds
   const now = Date.now();
   if (now - lastGamemodeSwitch < 30000) return;
   
@@ -176,22 +175,32 @@ async function getItemFromCreativeInventory(itemName, count = 1) {
 
   try {
     const itemId = mcData.itemsByName[itemName]?.id;
-    if (!itemId) return null;
+    if (!itemId) {
+      console.log(`  ⚠️  Item ${itemName} not found`);
+      return null;
+    }
 
     const item = new Item(itemId, count, null);
     await currentBot.creative.setInventorySlot(36, item);
     await delay(500);
     
     const slotItem = currentBot.inventory.slots[36];
-    return slotItem?.name === itemName ? slotItem : null;
+    if (slotItem?.name === itemName) {
+      console.log(`  ✅ Got ${count}x ${itemName}`);
+      return slotItem;
+    }
+    return null;
   } catch (error) {
+    console.log(`  ⚠️  Failed to get ${itemName}: ${error.message}`);
     return null;
   }
 }
 
 async function ensureInventoryItem(itemName, minCount = 1) {
   const existingItem = currentBot.inventory.items().find(item => item.name === itemName);
-  if (existingItem?.count >= minCount) return existingItem;
+  if (existingItem?.count >= minCount) {
+    return existingItem;
+  }
 
   if (isCreativeMode()) {
     const creativeItem = await getItemFromCreativeInventory(itemName, minCount);
@@ -199,6 +208,20 @@ async function ensureInventoryItem(itemName, minCount = 1) {
   }
 
   return existingItem || null;
+}
+
+async function ensureBedInInventory() {
+  const bedNames = ["red_bed", "blue_bed", "white_bed", "black_bed"];
+  
+  // Check if we already have a bed
+  const existingBed = currentBot.inventory.items().find(item => bedNames.includes(item.name));
+  if (existingBed) {
+    return existingBed;
+  }
+
+  // Get a bed from creative inventory
+  console.log("  🛏️  Getting bed from creative inventory...");
+  return await getItemFromCreativeInventory("red_bed", 1);
 }
 
 async function lookAround() {
@@ -354,6 +377,7 @@ async function startHumanLikeActivity() {
 
     setImmediate(startHumanLikeActivity);
   } catch (error) {
+    console.error("⚠️  Activity error:", error.message);
     state.isProcessing = false;
     setTimeout(startHumanLikeActivity, randomDelay(5000, 10000));
   }
@@ -410,7 +434,10 @@ async function idleActivity() {
 async function placeAndBreakBlock() {
   const blockType = "dirt";
   const item = await ensureInventoryItem(blockType, 1);
-  if (!item) return;
+  if (!item) {
+    console.log(`  ⚠️  No ${blockType} available`);
+    return;
+  }
 
   await currentBot.equip(item, "hand");
   const pos = currentBot.entity.position.floored();
@@ -422,6 +449,7 @@ async function placeAndBreakBlock() {
     { pos: new Vec3(pos.x, pos.y, pos.z - 1), ref: new Vec3(pos.x, pos.y - 1, pos.z - 1), vec: new Vec3(0, 1, 0) },
   ].sort(() => Math.random() - 0.5);
 
+  let placed = false;
   for (const attempt of directions) {
     const targetBlock = currentBot.blockAt(attempt.pos);
     const referenceBlock = currentBot.blockAt(attempt.ref);
@@ -435,10 +463,17 @@ async function placeAndBreakBlock() {
         if (placedBlock?.name === blockType && currentBot.canDigBlock(placedBlock)) {
           await currentBot.dig(placedBlock);
           console.log("  ✅ Placed and broke block");
+          placed = true;
         }
         break;
-      } catch (err) {}
+      } catch (err) {
+        // Continue to next direction
+      }
     }
+  }
+  
+  if (!placed) {
+    console.log("  ⚠️  Could not place block");
   }
 }
 
@@ -472,50 +507,90 @@ async function tryToSleep() {
     console.log("🌙 Night time - attempting to sleep...");
 
     const bedNames = ["red_bed", "blue_bed", "white_bed", "black_bed"];
+    
+    // First try to find existing bed
     let bedBlock = currentBot.findBlock({
       matching: (block) => bedNames.includes(block.name),
       maxDistance: 16,
     });
 
-    if (!bedBlock) {
-      const bedItem = await ensureInventoryItem("red_bed", 1);
+    if (bedBlock) {
+      console.log(`  ✅ Found existing bed`);
+      const distance = bedBlock.position.distanceTo(currentBot.entity.position);
+      if (distance > 3) {
+        console.log(`  🚶 Walking to bed (${distance.toFixed(1)} blocks)...`);
+        const goal = new goals.GoalBlock(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z);
+        currentBot.pathfinder.setGoal(goal);
+        await waitForArrival(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 3, 10000);
+        currentBot.pathfinder.setGoal(null);
+      }
+    } else {
+      // No bed found, place one
+      console.log("  🛏️  No bed found, placing one...");
+      const bedItem = await ensureBedInInventory();
+      
       if (bedItem) {
         await currentBot.equip(bedItem, "hand");
         const pos = currentBot.entity.position.floored();
         
-        for (const dx of [-1, 1, 0, 0]) {
-          for (const dz of [0, 0, -1, 1]) {
-            const ref = new Vec3(pos.x + dx, pos.y - 1, pos.z + dz);
-            const refBlock = currentBot.blockAt(ref);
-            if (refBlock?.name !== "air") {
-              try {
-                await currentBot.placeBlock(refBlock, new Vec3(0, 1, 0));
-                bedBlock = currentBot.findBlock({
-                  matching: (block) => bedNames.includes(block.name),
-                  maxDistance: 5,
-                });
-                if (bedBlock) break;
-              } catch (err) {}
+        // Try to place bed in different directions
+        const directions = [
+          { dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 }
+        ];
+        
+        for (const dir of directions) {
+          const refPos = new Vec3(pos.x + dir.dx, pos.y - 1, pos.z + dir.dz);
+          const refBlock = currentBot.blockAt(refPos);
+          const bedPos = new Vec3(pos.x + dir.dx, pos.y, pos.z + dir.dz);
+          const targetBlock = currentBot.blockAt(bedPos);
+          
+          if (refBlock && refBlock.name !== "air" && targetBlock && targetBlock.name === "air") {
+            try {
+              await currentBot.placeBlock(refBlock, new Vec3(0, 1, 0));
+              await delay(1000);
+              
+              // Check if bed was placed
+              bedBlock = currentBot.findBlock({
+                matching: (block) => bedNames.includes(block.name),
+                maxDistance: 5,
+              });
+              
+              if (bedBlock) {
+                console.log(`  ✅ Bed placed successfully at (${bedPos.x}, ${bedPos.y}, ${bedPos.z})`);
+                break;
+              }
+            } catch (err) {
+              console.log(`  ⚠️  Could not place bed at (${bedPos.x}, ${bedPos.y}, ${bedPos.z})`);
             }
           }
-          if (bedBlock) break;
         }
+      } else {
+        console.log("  ⚠️  No bed available in inventory");
       }
     }
 
     if (bedBlock) {
-      await currentBot.sleep(bedBlock);
-      console.log("  ✅ Sleeping...");
+      console.log("  💤 Attempting to sleep...");
+      try {
+        await currentBot.sleep(bedBlock);
+        console.log("  ✅ Sleeping peacefully...");
 
-      currentBot.once("wake", () => {
-        console.log("  ☀️  Good morning!");
-        state.isSleeping = state.isProcessing = false;
-        setTimeout(startHumanLikeActivity, 2000);
-      });
+        currentBot.once("wake", () => {
+          console.log("  ☀️  Good morning!");
+          state.isSleeping = state.isProcessing = false;
+          setTimeout(startHumanLikeActivity, 2000);
+        });
+        return;
+      } catch (sleepError) {
+        console.log(`  ⚠️  Could not sleep: ${sleepError.message}`);
+      }
     } else {
-      throw new Error("No bed available");
+      console.log("  ⚠️  No bed available for sleeping");
     }
+    
   } catch (error) {
+    console.log(`  ⚠️  Sleep setup error: ${error.message}`);
+  } finally {
     state.isSleeping = state.isProcessing = false;
     setTimeout(startHumanLikeActivity, 5000);
   }
@@ -586,7 +661,9 @@ function setupBotHandlers() {
 }
 
 // Initialize
-startBotCycle();
+if (require.main === module) {
+  startBotCycle();
+}
 
 process.on("SIGINT", () => {
   console.log("\n👋 Shutting down...");
