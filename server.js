@@ -37,7 +37,10 @@ function startBot() {
   
   botProcess = spawn('node', ['bot.js'], {
     stdio: 'inherit',
-    env: process.env
+    env: {
+      ...process.env,
+      RENDER: 'true' // Signal to bot that it's running on Render
+    }
   });
   
   botProcess.on('spawn', () => {
@@ -55,38 +58,17 @@ function startBot() {
     botStatus = 'stopped';
     
     // Auto-restart bot after 10 seconds
-    if (code !== 0) {
-      console.log('🔄 Restarting bot in 10 seconds...');
-      setTimeout(startBot, 10000);
-    }
+    console.log('🔄 Restarting bot in 10 seconds...');
+    setTimeout(startBot, 10000);
   });
 }
 
 // Start the server
-const server = app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Health server running on port ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log('==============================================');
   
   // Start the bot after server is running
   startBot();
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down...');
-  server.close(() => {
-    console.log('HTTP server closed');
-    if (botProcess) botProcess.kill();
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down...');
-  server.close(() => {
-    console.log('HTTP server closed');
-    if (botProcess) botProcess.kill();
-    process.exit(0);
-  });
 });
