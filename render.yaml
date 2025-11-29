@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: minecraft-bot
+    name: minecraft-dual-bot
     env: node
     plan: free
     buildCommand: npm install
@@ -18,3 +18,4 @@ services:
         value: CraftMan
       - key: HEROBRINE_USERNAME
         value: HeroBrine
+    healthCheckPath: /health
