@@ -1,61 +1,47 @@
 const express = require('express');
+const { exec } = require('child_process');
+const path = require('path');
 
+// --- 1. RENDER WEB SERVER SETUP (Health Check) ---
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Use the port provided by Render environment, or 3000 as a fallback
+const PORT = process.env.PORT || 3000; 
 
-// Middleware
-app.use(express.json());
-
-// Health check endpoint - MUST respond quickly
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    service: 'minecraft-bot',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Root endpoint
+// Simple endpoint for Render to confirm the service is running
 app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Minecraft Dual Bot System',
-    status: 'running'
-  });
+    res.status(200).send('Minecraft Dual Bot System is Running!');
 });
 
-// Start server FIRST
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log('='.repeat(50));
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Health: http://0.0.0.0:${PORT}/health`);
-  console.log('='.repeat(50));
-  
-  // Start bot AFTER server is confirmed running
-  setTimeout(() => {
-    console.log('🤖 Starting Minecraft bot system...');
-    require('./bot.js');
-  }, 1000);
+app.listen(PORT, () => {
+    console.log(`✅ Web Server running and bound to port ${PORT} (Required for Render).`);
 });
 
-// Handle server errors
-server.on('error', (error) => {
-  console.error('❌ Server error:', error);
-  process.exit(1);
-});
+// --- 2. BOT SUPERVISOR SETUP ---
+const botScriptPath = path.join(__dirname, 'bot.js');
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM received');
-  server.close(() => {
-    console.log('✅ Server closed');
-    process.exit(0);
-  });
-});
+function startBot() {
+    console.log(`\n🤖 Starting the main bot script: ${botScriptPath}`);
+    // Execute bot.js as a child process
+    const botProcess = exec(`node ${botScriptPath}`);
 
-process.on('SIGINT', () => {
-  console.log('🛑 SIGINT received');
-  server.close(() => {
-    console.log('✅ Server closed');
-    process.exit(0);
-  });
-});
+    botProcess.stdout.on('data', (data) => {
+        // Output all bot logs to the console
+        console.log(`[BOT-LOG]: ${data.toString().trim()}`);
+    });
+
+    botProcess.stderr.on('data', (data) => {
+        // Output all bot errors to the console
+        console.error(`[BOT-ERROR]: ${data.toString().trim()}`);
+    });
+
+    botProcess.on('close', (code) => {
+        // This is called if the bot.js process exits for any reason (crash, external kill)
+        console.log(`\n\n🚨 BOT PROCESS EXIT: Bot script closed with code ${code}.`);
+        console.log('🔄 Attempting to restart the bot script in 10 seconds...');
+        // Automatically restart the bot process if it crashes or exits
+        setTimeout(startBot, 10000); 
+    });
+}
+
+// Start the bot logic immediately
+startBot();
