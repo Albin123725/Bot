@@ -19,7 +19,7 @@
     "dotenv": "^16.4.5",
     "mineflayer": "^4.33.0",
     "mineflayer-pathfinder": "^2.4.0",
-    "prismarine-item": "^2.5.0",  <-- **THIS IS THE CRITICAL CHANGE**
+    "prismarine-item": "^2.5.0",
     "minecraft-data": "^3.28.0",
     "express": "^4.19.2",
     "vec3": "^0.1.7"
