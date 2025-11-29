@@ -3,49 +3,59 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Health check endpoint
+// Middleware
+app.use(express.json());
+
+// Health check endpoint - MUST respond quickly
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'Minecraft Dual Bot System',
+  res.status(200).json({ 
+    status: 'ok', 
+    service: 'minecraft-bot',
     timestamp: new Date().toISOString()
   });
 });
 
 // Root endpoint
 app.get('/', (req, res) => {
-  res.json({
-    message: 'Minecraft Dual Bot System is running!',
-    endpoints: {
-      health: '/health'
-    }
+  res.json({ 
+    message: 'Minecraft Dual Bot System',
+    status: 'running'
   });
 });
 
-// Start the server
+// Start server FIRST
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Health server running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
-  console.log('==============================================');
-  console.log('🤖 Starting Minecraft bots...');
+  console.log('='.repeat(50));
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 Health: http://0.0.0.0:${PORT}/health`);
+  console.log('='.repeat(50));
   
-  // Import and start the bot system after server is running
-  require('./bot.js');
+  // Start bot AFTER server is confirmed running
+  setTimeout(() => {
+    console.log('🤖 Starting Minecraft bot system...');
+    require('./bot.js');
+  }, 1000);
+});
+
+// Handle server errors
+server.on('error', (error) => {
+  console.error('❌ Server error:', error);
+  process.exit(1);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down...');
+  console.log('🛑 SIGTERM received');
   server.close(() => {
-    console.log('HTTP server closed');
+    console.log('✅ Server closed');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down...');
+  console.log('🛑 SIGINT received');
   server.close(() => {
-    console.log('HTTP server closed');
+    console.log('✅ Server closed');
     process.exit(0);
   });
 });
