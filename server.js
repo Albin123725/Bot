@@ -1,67 +1,31 @@
 const express = require('express');
-
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
-// Middleware
-app.use(express.json());
-
-// Health check endpoint - MUST be at root level
+// Health endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ 
-    status: 'healthy',
-    service: 'minecraft-dual-bot',
-    timestamp: new Date().toISOString(),
-    port: PORT,
-    message: 'Port binding confirmed'
+    status: 'ok', 
+    message: 'Minecraft Dual Bot System - Home Location Enabled',
+    port: PORT
   });
 });
 
-// Root endpoint
 app.get('/', (req, res) => {
-  res.json({
-    message: 'Minecraft Dual Bot System - ONLINE',
-    status: 'operational',
-    endpoints: {
-      health: '/health',
-      status: '/'
-    }
+  res.json({ 
+    message: 'Minecraft Dual Bot System v2.1.0',
+    features: [
+      'Home location system',
+      'Automatic night behavior',
+      'Smart bed placement',
+      'Auto-spawnpoint setting'
+    ]
   });
 });
 
-// Start server with explicit binding
-console.log('🚀 STARTING SERVER WITH EXPLICIT PORT BINDING...');
-console.log(`📍 Binding to PORT: ${PORT}`);
-console.log(`📍 Binding to HOST: 0.0.0.0`);
-
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log('='.repeat(60));
-  console.log('✅ SERVER SUCCESSFULLY BOUND TO PORT!');
-  console.log('='.repeat(60));
-  console.log(`📍 PORT: ${PORT}`);
-  console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
-  console.log(`🔍 Health: http://0.0.0.0:${PORT}/health`);
-  console.log('='.repeat(60));
-  
-  // Start bot system AFTER port confirmation
-  console.log('🤖 Initializing Minecraft bot system...');
-  try {
-    require('./bot.js');
-  } catch (error) {
-    console.error('❌ Failed to load bot system:', error);
-  }
+// Start server
+console.log('🚀 Starting Minecraft Dual Bot System with Home Location...');
+app.listen(PORT, '0.0.0.0', () => {
+  console.log('✅ Server started on port:', PORT);
+  require('./bot.js');
 });
-
-// Server error handling
-server.on('error', (error) => {
-  console.error('💥 SERVER ERROR:', error.message);
-  console.error('Error code:', error.code);
-  process.exit(1);
-});
-
-// Keep server alive with regular logs
-setInterval(() => {
-  console.log(`💓 Server heartbeat - Port ${PORT} actively listening`);
-}, 15000);
-
-console.log('🔧 Server initialization complete');
