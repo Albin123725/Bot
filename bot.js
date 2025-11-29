@@ -1,38 +1,44 @@
+require("dotenv").config();
 const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const Vec3 = require("vec3");
+const fs = require("fs");
 
-// Bot configurations
-const botConfigs = {
-  CraftMan: {
-    host: process.env.MINECRAFT_HOST || "gameplannet.aternos.me",
-    port: parseInt(process.env.MINECRAFT_PORT, 10) || 51270,
-    username: process.env.CRAFTMAN_USERNAME || "CraftMan",
-    version: process.env.MINECRAFT_VERSION || "1.21.10",
-    auth: process.env.MINECRAFT_AUTH || "offline"
+let config;
+try {
+  config = JSON.parse(fs.readFileSync("config.json", "utf8"));
+} catch (error) {
+  console.error("Error reading config.json:", error.message);
+  process.exit(1);
+}
+
+// Bot configurations - Uses environment variables for shared server details
+const getBotConfig = (botName) => ({
+  host: process.env.MINECRAFT_HOST || "localhost",
+  port: parseInt(process.env.MINECRAFT_PORT, 10) || 25565,
+  username: botName, // Use the unique bot name as the profile name
+  version: process.env.MINECRAFT_VERSION || "1.21.10",
+  auth: process.env.MINECRAFT_AUTH || "microsoft",
+  profilesFolder: "./auth-cache",
+  checkTimeoutInterval: 60000,
+  keepAlive: true,
+  onMsaCode: (data) => {
+    console.log("\n🔐 ===== MICROSOFT AUTHENTICATION REQUIRED =====");
+    console.log(`Bot: ${botName}`);
+    console.log(`Please open this URL in your browser: ${data.verification_uri}`);
+    console.log(`Enter this code: ${data.user_code}`);
+    console.log("==============================================\n");
   },
-  HeroBrine: {
-    host: process.env.MINECRAFT_HOST || "gameplannet.aternos.me",
-    port: parseInt(process.env.MINECRAFT_PORT, 10) || 51270,
-    username: process.env.HEROBRINE_USERNAME || "HeroBrine",
-    version: process.env.MINECRAFT_VERSION || "1.21.10",
-    auth: process.env.MINECRAFT_AUTH || "offline"
-  }
-};
+});
 
-console.log("🤖 Starting Minecraft Dual Bot System");
-console.log(`📍 Server: ${botConfigs.CraftMan.host}:${botConfigs.CraftMan.port}`);
-console.log(`👥 Bots: ${botConfigs.CraftMan.username} & ${botConfigs.HeroBrine.username}`);
-console.log('==============================================');
+console.log("🤖 Starting Dual Bot System: CraftMan & HeroBrine");
 
 // Global variables
 let currentBot = null;
 let currentBotName = null;
 let mcData = null;
 let Item = null;
-let botSwitchInterval = null;
-let lastGamemodeSwitch = 0;
-let isSwitching = false;
+let botActivityInterval = null;
 
 // Bot state management
 const botStates = {
@@ -40,27 +46,23 @@ const botStates = {
     isProcessing: false,
     isSleeping: false,
     lastActivityTime: Date.now(),
-    activityCount: 0,
     exploreCenter: null,
     antiAFKInterval: null,
     gamemodeMonitorInterval: null,
     keepAliveInterval: null,
-    inCombat: false,
-    lastPacketTime: Date.now()
+    inCombat: false
   },
   HeroBrine: {
     isProcessing: false,
     isSleeping: false,
     lastActivityTime: Date.now(),
-    activityCount: 0,
     exploreCenter: null,
     antiAFKInterval: null,
     gamemodeMonitorInterval: null,
     combatMonitorInterval: null,
     keepAliveInterval: null,
     inCombat: false,
-    currentTarget: null,
-    lastPacketTime: Date.now()
+    currentTarget: null
   }
 };
 
@@ -68,79 +70,49 @@ const botStates = {
 function randomDelay(min = 500, max = 3000) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
-
 function randomFloat(min, max) {
   return Math.random() * (max - min) + min;
 }
-
 function randomChoice(array) {
   return array[Math.floor(Math.random() * array.length)];
 }
-
 function shouldDoActivity(probability = 0.3) {
   return Math.random() < probability;
 }
-
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
 function getCurrentBotState() {
-  return currentBotName ? botStates[currentBotName] : null;
+  return botStates[currentBotName];
+}
+function isNightTime() {
+  if (!currentBot || currentBot.time.skyLight === undefined) return false;
+  // Sky light level of 4 or less usually indicates night time
+  return currentBot.time.skyLight <= 4;
 }
 
 // Bot management functions
 function startBotCycle() {
   console.log("🔄 Starting bot cycle management...");
+  // Start with CraftMan first
   switchToBot("CraftMan");
-  
-  botSwitchInterval = setInterval(() => {
-    if (currentBot && currentBotName && !isSwitching) {
-      console.log(`\n🔄 Scheduled bot switch triggered...`);
-      switchBot();
-    }
-  }, randomDelay(300000, 600000)); // 5-10 minutes
 }
 
 function switchToBot(botName) {
-  if (isSwitching) return;
-  isSwitching = true;
-  
   if (currentBot) {
     console.log(`🔌 Disconnecting ${currentBotName}...`);
     cleanupBot(currentBotName);
-    
-    // Properly end the current bot connection
-    try {
-      if (currentBot.end) {
-        currentBot.end("Bot switch");
-      }
-    } catch (error) {
-      console.log(`  ⚠️  Error disconnecting: ${error.message}`);
-    }
+    currentBot.quit(); // Explicitly quit the old bot
     currentBot = null;
   }
   
   console.log(`\n🎮 ===== SWITCHING TO ${botName} =====`);
   currentBotName = botName;
-  
-  // Add delay to prevent duplicate login
-  setTimeout(() => {
-    try {
-      currentBot = mineflayer.createBot(botConfigs[botName]);
-      setupBotHandlers();
-      isSwitching = false;
-    } catch (error) {
-      console.log(`❌ Failed to create bot: ${error.message}`);
-      isSwitching = false;
-      // Retry after delay
-      setTimeout(() => switchToBot(botName), 10000);
-    }
-  }, 5000); // 5 second delay to prevent duplicate login
+  currentBot = mineflayer.createBot(getBotConfig(botName));
+  setupBotHandlers();
 }
 
 function switchBot() {
-  if (isSwitching) return;
   const nextBot = currentBotName === "CraftMan" ? "HeroBrine" : "CraftMan";
   switchToBot(nextBot);
 }
@@ -149,124 +121,31 @@ function cleanupBot(botName) {
   const state = botStates[botName];
   if (!state) return;
   
-  [state.antiAFKInterval, state.gamemodeMonitorInterval, state.combatMonitorInterval, state.keepAliveInterval]
-    .forEach(interval => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    });
-}
-
-// Core bot functions
-function isCreativeMode() {
-  return currentBot?.player?.gamemode === 1;
-}
-
-async function ensureCreativeMode() {
-  if (!currentBot?.player) return;
-  
-  const now = Date.now();
-  if (now - lastGamemodeSwitch < 30000) return;
-  
-  if (currentBot.player.gamemode !== 1) {
-    console.log("⚠️  Switching to Creative mode...");
-    try {
-      currentBot.chat("/gamemode creative");
-      lastGamemodeSwitch = now;
-      await delay(2000);
-    } catch (error) {
-      console.log("  ⚠️  Failed to switch gamemode - may need OP permissions");
-    }
-  }
-}
-
-function startGamemodeMonitoring() {
-  const state = getCurrentBotState();
-  if (!state) return;
-  
+  // Clear all intervals and state trackers
+  if (state.antiAFKInterval) clearInterval(state.antiAFKInterval);
   if (state.gamemodeMonitorInterval) clearInterval(state.gamemodeMonitorInterval);
-  state.gamemodeMonitorInterval = setInterval(ensureCreativeMode, 10000);
-  console.log("🎮 Gamemode monitoring enabled");
-}
-
-function startKeepAliveMonitoring() {
-  const state = getCurrentBotState();
-  if (!state) return;
-  
+  if (state.combatMonitorInterval) clearInterval(state.combatMonitorInterval);
   if (state.keepAliveInterval) clearInterval(state.keepAliveInterval);
-  state.keepAliveInterval = setInterval(() => {
-    if (currentBot?.entity) {
-      currentBot.setControlState("jump", true);
-      setTimeout(() => currentBot.setControlState("jump", false), 100);
-    }
-  }, 15000);
-  console.log("💓 Keep-alive monitoring enabled");
-}
-
-async function getItemFromCreativeInventory(itemName, count = 1) {
-  if (!isCreativeMode() || !Item) return null;
-
-  try {
-    const itemId = mcData.itemsByName[itemName]?.id;
-    if (!itemId) {
-      console.log(`  ⚠️  Item ${itemName} not found`);
-      return null;
-    }
-
-    const item = new Item(itemId, count, null);
-    await currentBot.creative.setInventorySlot(36, item);
-    await delay(500);
-    
-    const slotItem = currentBot.inventory.slots[36];
-    if (slotItem?.name === itemName) {
-      console.log(`  ✅ Got ${count}x ${itemName}`);
-      return slotItem;
-    }
-    return null;
-  } catch (error) {
-    console.log(`  ⚠️  Failed to get ${itemName}: ${error.message}`);
-    return null;
-  }
-}
-
-async function ensureInventoryItem(itemName, minCount = 1) {
-  const existingItem = currentBot.inventory.items().find(item => item.name === itemName);
-  if (existingItem?.count >= minCount) {
-    return existingItem;
-  }
-
-  if (isCreativeMode()) {
-    const creativeItem = await getItemFromCreativeInventory(itemName, minCount);
-    if (creativeItem) return creativeItem;
-  }
-
-  return existingItem || null;
-}
-
-async function ensureBedInInventory() {
-  const bedNames = ["red_bed", "blue_bed", "white_bed", "black_bed"];
   
-  const existingBed = currentBot.inventory.items().find(item => bedNames.includes(item.name));
-  if (existingBed) {
-    return existingBed;
+  if (botActivityInterval) {
+    clearInterval(botActivityInterval);
+    botActivityInterval = null;
   }
-
-  console.log("  🛏️  Getting bed from creative inventory...");
-  return await getItemFromCreativeInventory("red_bed", 1);
+  
+  state.antiAFKInterval = null;
+  state.gamemodeMonitorInterval = null;
+  state.combatMonitorInterval = null;
+  state.keepAliveInterval = null;
+  state.isProcessing = false;
+  state.inCombat = false;
+  state.isSleeping = false;
 }
 
-async function lookAround() {
-  if (!currentBot?.entity) return;
-  try {
-    const yaw = randomFloat(-Math.PI, Math.PI);
-    const pitch = randomFloat(-Math.PI / 6, Math.PI / 6);
-    await currentBot.look(yaw, pitch, true);
-    await delay(randomDelay(300, 800));
-  } catch (error) {}
-}
+// ===== CORE BOT FEATURES (CraftMan & HeroBrine) =====
 
+// Anti-AFK Logic
 async function performRandomAction() {
-  if (!currentBot?.entity) return;
+  if (!currentBot || !currentBot.entity) return;
 
   const actions = [
     async () => {
@@ -283,20 +162,26 @@ async function performRandomAction() {
       await lookAround();
       await delay(randomDelay(200, 600));
       await lookAround();
+    },
+    async () => {
+      currentBot.swingArm();
+      await delay(randomDelay(200, 500));
     }
   ];
 
   try {
     await randomChoice(actions)();
-  } catch (error) {}
+  } catch (error) {
+    // Ignore minor errors during AFK actions
+  }
 }
 
 async function antiAFK() {
   const state = getCurrentBotState();
-  if (!state || state.isProcessing || state.isSleeping) return;
-  
   const timeSinceLastActivity = Date.now() - state.lastActivityTime;
-  if (timeSinceLastActivity > randomDelay(15000, 45000)) {
+  const afkThreshold = currentBotName === 'CraftMan' ? randomDelay(15000, 45000) : randomDelay(30000, 120000); 
+
+  if (timeSinceLastActivity > afkThreshold && !state.isProcessing && !state.isSleeping && !state.inCombat) {
     console.log("💭 Performing anti-AFK action...");
     await performRandomAction();
     state.lastActivityTime = Date.now();
@@ -305,37 +190,193 @@ async function antiAFK() {
 
 function startAntiAFKMonitoring() {
   const state = getCurrentBotState();
-  if (!state) return;
-  
   if (state.antiAFKInterval) clearInterval(state.antiAFKInterval);
-  state.antiAFKInterval = setInterval(antiAFK, 8000);
-  console.log("🛡️  Anti-AFK monitoring enabled");
+  const interval = currentBotName === 'CraftMan' ? 8000 : 15000; 
+  state.antiAFKInterval = setInterval(antiAFK, interval);
+  console.log(`🛡️  Anti-AFK monitoring enabled (${interval / 1000}s check)`);
 }
 
-// Combat functions for HeroBrine
+function startKeepAliveMonitoring() {
+  const state = getCurrentBotState();
+  if (state.keepAliveInterval) clearInterval(state.keepAliveInterval);
+  state.keepAliveInterval = setInterval(() => {
+    if (currentBot && currentBot.entity && !state.isProcessing && !state.isSleeping) {
+      currentBot.setControlState("jump", true);
+      setTimeout(() => {
+        currentBot.setControlState("jump", false);
+      }, 100);
+    }
+  }, 20000); // Pulse every 20 seconds
+  console.log("💓 Enhanced keep-alive monitoring enabled");
+}
+
+// Creative Mode & Inventory Logic (Mainly CraftMan)
+function isCreativeMode() {
+  if (!currentBot || !currentBot.player) return false;
+  return currentBot.player.gamemode === 1;
+}
+
+async function ensureCreativeMode() {
+  if (currentBotName !== 'CraftMan') return;
+  if (!currentBot || !currentBot.player) return;
+  
+  if (currentBot.player.gamemode !== 1) {
+    console.log(`⚠️  Gamemode changed - switching back to Creative...`);
+    try {
+      currentBot.chat("/gamemode creative");
+      await delay(1000);
+      if (currentBot.player.gamemode === 1) {
+        console.log("✅ Successfully switched to Creative mode");
+      } else {
+        console.log("⚠️  Failed to switch to Creative mode - bot may lack OP permissions");
+      }
+    } catch (error) {
+      console.log(`  ⚠️  Failed to switch gamemode: ${error.message}`);
+    }
+  }
+}
+
+function startGamemodeMonitoring() {
+  if (currentBotName !== 'CraftMan') return;
+  const state = getCurrentBotState();
+  if (state.gamemodeMonitorInterval) clearInterval(state.gamemodeMonitorInterval);
+  state.gamemodeMonitorInterval = setInterval(ensureCreativeMode, 2000);
+  console.log("🎮 Gamemode monitoring enabled (CraftMan)");
+}
+
+async function getItemFromCreativeInventory(itemName, count = 1) {
+  if (!isCreativeMode() || !Item) return null;
+
+  try {
+    const itemId = mcData.itemsByName[itemName]?.id;
+    if (!itemId) {
+      return null;
+    }
+    const targetSlot = 36 + Math.floor(Math.random() * 9); 
+    const item = new Item(itemId, count, null);
+    await currentBot.creative.setInventorySlot(targetSlot, item);
+    await delay(500);
+
+    const slotItem = currentBot.inventory.slots[targetSlot];
+    if (slotItem && slotItem.name === itemName) {
+      return slotItem;
+    }
+    return null;
+  } catch (error) {
+    // This function must be robust against the protocol errors that were previously crashing the bot
+    console.log(`  ⚠️  [Creative] Failed to get ${itemName}: ${error.message}`);
+    return null;
+  }
+}
+
+async function ensureInventoryItem(itemName, minCount = 1) {
+  const existingItem = currentBot.inventory
+    .items()
+    .find((item) => item.name === itemName);
+
+  if (existingItem && existingItem.count >= minCount) {
+    return existingItem;
+  }
+
+  if (currentBotName === 'CraftMan' && isCreativeMode()) {
+    const neededCount = minCount - (existingItem?.count || 0);
+    return await getItemFromCreativeInventory(
+      itemName,
+      neededCount > 0 ? neededCount : minCount,
+    );
+  }
+
+  return existingItem || null;
+}
+
+// ===== HERO BRINE COMBAT FUNCTIONS =====
+
 function isHostileMob(entity) {
-  if (!entity?.name) return false;
-  const hostileMobs = ["zombie", "skeleton", "creeper", "spider", "enderman"];
+  if (!entity || !entity.name) return false;
+  const hostileMobs = [
+    "zombie", "skeleton", "creeper", "spider", "enderman", "witch", "blaze", "ghast",
+    "husk", "drowned", "stray", "wither_skeleton", "phantom", "ravager", "hoglin", 
+    "zoglin", "zombified_piglin", "guardian", "elder_guardian", "shulker"
+  ];
   return hostileMobs.includes(entity.name);
 }
 
 function getNearbyHostileMobs() {
-  if (!currentBot?.entities) return [];
+  if (!currentBot || !currentBot.entities) return [];
   
-  return Object.values(currentBot.entities)
-    .filter(entity => entity !== currentBot.entity && isHostileMob(entity))
-    .map(entity => ({
-      entity: entity,
-      distance: currentBot.entity.position.distanceTo(entity.position),
-      name: entity.name
-    }))
-    .filter(mob => mob.distance <= 16)
-    .sort((a, b) => a.distance - b.distance);
+  const hostileMobs = [];
+  const detectionRadius = config.combatSettings?.detectionRadius || 16;
+  
+  for (const entity of Object.values(currentBot.entities)) {
+    if (entity === currentBot.entity || entity.type !== 'mob') continue;
+    
+    if (isHostileMob(entity)) {
+      const distance = currentBot.entity.position.distanceTo(entity.position);
+      if (distance <= detectionRadius) {
+        hostileMobs.push({ entity: entity, distance: distance });
+      }
+    }
+  }
+  hostileMobs.sort((a, b) => a.distance - b.distance);
+  return hostileMobs.map(m => m.entity);
+}
+
+async function equipWeapon() {
+  const preferredWeapon = config.combatSettings?.preferredWeapon || "diamond_sword";
+  const weapon = await ensureInventoryItem(preferredWeapon, 1);
+  if (weapon) {
+    try {
+      await currentBot.equip(weapon, "hand");
+      console.log(`  ⚔️  Equipped ${weapon.name}`);
+      return weapon;
+    } catch (error) {
+      console.log(`  ⚠️  Failed to equip weapon: ${error.message}`);
+      return null;
+    }
+  }
+  console.log("  ⚠️  No weapon available");
+  return null;
+}
+
+async function engageCombat(mobEntity) {
+  const state = getCurrentBotState();
+  const maxCombatDuration = 30000;
+  const startTime = Date.now();
+  
+  while (mobEntity && mobEntity.isValid && mobEntity.health > 0 && Date.now() - startTime < maxCombatDuration) {
+    const distance = currentBot.entity.position.distanceTo(mobEntity.position);
+    
+    try {
+      await currentBot.lookAt(mobEntity.position.offset(0, mobEntity.height * 0.5, 0));
+      
+      if (distance > 3) {
+        const goal = new goals.GoalNear(mobEntity.position.x, mobEntity.position.y, mobEntity.position.z, 2);
+        currentBot.pathfinder.setGoal(goal);
+        await delay(300);
+      } else {
+        currentBot.pathfinder.setGoal(null);
+        await currentBot.attack(mobEntity);
+        console.log(`  💥 Attacked ${mobEntity.name}`);
+        await delay(currentBot.getAttackCooldown() + 50);
+      }
+      
+    } catch (error) {
+      break; 
+    }
+  }
+  
+  currentBot.pathfinder.setGoal(null);
+  if (mobEntity && !mobEntity.isValid) {
+    console.log(`  ✅ Defeated ${mobEntity.name}!`);
+  }
+  state.inCombat = false;
 }
 
 async function defendAgainstMobs() {
+  if (currentBotName !== 'HeroBrine' || !config.combatSettings?.enabled) return;
+  
   const state = getCurrentBotState();
-  if (!state || state.inCombat || state.isProcessing) return;
+  if (state.inCombat || state.isProcessing) return;
   
   const nearbyMobs = getNearbyHostileMobs();
   if (nearbyMobs.length === 0) return;
@@ -345,76 +386,175 @@ async function defendAgainstMobs() {
   
   try {
     const target = nearbyMobs[0];
-    console.log(`\n⚔️  COMBAT: ${target.name} (${target.distance.toFixed(1)} blocks)`);
+    console.log(`\n⚔️  === COMBAT MODE ACTIVATED (HeroBrine) ===`);
     
-    const weapon = await ensureInventoryItem("diamond_sword", 1);
-    if (weapon) await currentBot.equip(weapon, "hand");
-    
-    await currentBot.lookAt(target.entity.position.offset(0, target.entity.height * 0.5, 0));
-    
-    if (target.distance > 3.5) {
-      const goal = new goals.GoalNear(target.entity.position.x, target.entity.position.y, target.entity.position.z, 3);
-      currentBot.pathfinder.setGoal(goal);
-      await delay(1000);
+    if (!(await equipWeapon())) {
+      return;
     }
     
-    if (target.distance <= 4) {
-      await currentBot.attack(target.entity);
-      console.log(`  💥 Attacked ${target.name}`);
-    }
+    await engageCombat(target);
     
   } catch (error) {
-    console.log("  ⚠️  Combat error");
+    console.log(`  ⚠️  Combat error: ${error.message}`);
   } finally {
     state.inCombat = false;
     state.isProcessing = false;
-    currentBot.pathfinder.setGoal(null);
+    console.log(`⚔️  === COMBAT MODE ENDED ===\n`);
   }
 }
 
 function startCombatMonitoring() {
+  if (currentBotName !== 'HeroBrine') return;
   const state = getCurrentBotState();
-  if (!state) return;
-  
   if (state.combatMonitorInterval) clearInterval(state.combatMonitorInterval);
-  state.combatMonitorInterval = setInterval(defendAgainstMobs, 2000);
-  console.log("⚔️  Combat monitoring enabled");
+  state.combatMonitorInterval = setInterval(() => {
+    defendAgainstMobs().catch(err => {
+      if (err.message !== 'Too many pathfinding attempts') {
+        console.log(`  ⚠️  Combat monitor error: ${err.message}`);
+      }
+    });
+  }, 1000);
+  console.log("⚔️  Combat monitoring enabled (HeroBrine)\n");
 }
 
-// Activity system
+
+// ===== COMMON BOT ACTIVITIES & SLEEP FIX =====
+
+async function lookAround() {
+  if (!currentBot || !currentBot.entity) return;
+  try {
+    const yaw = randomFloat(-Math.PI, Math.PI);
+    const pitch = randomFloat(-Math.PI / 6, Math.PI / 6);
+    await currentBot.look(yaw, pitch, true);
+    await delay(randomDelay(300, 800));
+  } catch (error) {}
+}
+
+async function tryToSleep() {
+  const state = getCurrentBotState();
+  if (state.isSleeping || !config.autoSleep) return;
+  
+  // Set processing state while attempting sleep
+  state.isProcessing = true;
+  let placedBed = false;
+
+  try {
+    console.log("\n🌙 Night time - attempting to sleep...");
+    
+    const bedNames = mcData.itemsArray.filter(i => i.name.endsWith('_bed')).map(i => i.name);
+    let bedItem = currentBot.inventory.items().find(i => bedNames.includes(i.name));
+
+    if (!bedItem && currentBotName === 'CraftMan') {
+      bedItem = await getItemFromCreativeInventory("red_bed", 1);
+    }
+    if (!bedItem) {
+      console.log("  ⚠️  Could not get a bed. Cannot sleep.");
+      return;
+    }
+    
+    let bedBlock = currentBot.findBlock({ matching: (block) => bedNames.includes(block.name), maxDistance: 16 });
+
+    if (!bedBlock) {
+      // Logic to place the bed (simplified for brevity)
+      const pos = currentBot.entity.position.floored().offset(0, -1, 0);
+      const targetBlockPos = pos.offset(0, 1, 0);
+      const refBlock = currentBot.blockAt(pos);
+
+      if (refBlock && refBlock.name !== "air" && currentBot.blockAt(targetBlockPos)?.name === "air") {
+         await currentBot.equip(bedItem, "hand");
+         await currentBot.placeBlock(refBlock, new Vec3(0, 1, 0));
+         await delay(500);
+
+         const verifyBed = currentBot.blockAt(targetBlockPos);
+         if (verifyBed && bedNames.includes(verifyBed.name)) {
+            bedBlock = verifyBed;
+            placedBed = true;
+            console.log("  ✅ Placed new bed.");
+         }
+      }
+    }
+
+    if (!bedBlock) {
+      console.log("  ⚠️  No suitable place to sleep found.");
+      return;
+    }
+    
+    // Move to the bed if necessary
+    const distance = currentBot.entity.position.distanceTo(bedBlock.position);
+    if (distance > 3) {
+      const goal = new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2);
+      currentBot.pathfinder.setGoal(goal);
+      await new Promise(resolve => currentBot.once('goal_reached', resolve)).catch(() => {});
+      currentBot.pathfinder.setGoal(null);
+    }
+    
+    // Wait for the wake event to resolve
+    let wakePromise = new Promise(resolve => currentBot.once('wake', resolve));
+    
+    // Attempt sleep (this triggers the 'sleep' event which updates state.isSleeping)
+    await currentBot.sleep(bedBlock)
+        .then(() => wakePromise)
+        .then(() => {
+          console.log("☀️ Morning time! Waking up.");
+        });
+
+  } catch (error) {
+    if (error.message.includes('already sleeping') || error.message.includes('not night')) {
+        console.log(`  ⚠️  Could not sleep: ${error.message}. Continuing...`);
+    } else {
+        console.error(`  ⚠️  Sleeping failed with error: ${error.message}`);
+    }
+  } finally {
+    // CRITICAL FIX: Ensure state is reset regardless of success/failure
+    state.isSleeping = false;
+    state.isProcessing = false;
+    currentBot.pathfinder.setGoal(null); // Clear any pathfinding goal
+
+    // Clean up the placed bed
+    if (placedBed && bedBlock && currentBot.canDigBlock(bedBlock)) {
+      try {
+        await currentBot.dig(bedBlock);
+        console.log("  🔨 Bed broken and removed.");
+      } catch(err) {
+        console.log("  ⚠️  Failed to break bed.");
+      }
+    }
+  }
+}
+
 async function startHumanLikeActivity() {
   const state = getCurrentBotState();
-  if (!state || state.isProcessing || state.isSleeping || state.inCombat) return;
+  if (state.isProcessing || state.isSleeping || state.inCombat) return;
   state.isProcessing = true;
 
   try {
-    state.activityCount++;
-    console.log(`\n🎯 ${currentBotName} Activity ${state.activityCount}`);
-
-    if (isNightTime() && !state.isSleeping) {
+    if (config.autoSleep && isNightTime()) {
       state.isProcessing = false;
       await tryToSleep();
       return;
     }
 
     const activity = randomChoice(["explore", "explore", "build", "idle"]);
-    console.log(`🎲 Activity: ${activity}`);
-
+    
     switch (activity) {
-      case "explore": await exploreRandomly(); break;
-      case "build": await buildActivity(); break;
-      case "idle": await idleActivity(); break;
+      case "explore":
+        await exploreRandomly();
+        break;
+      case "build":
+        await buildActivity();
+        break;
+      case "idle":
+        await idleActivity();
+        break;
     }
 
     await delay(randomDelay(2000, 8000));
     state.lastActivityTime = Date.now();
-    state.isProcessing = false;
-
-    setImmediate(startHumanLikeActivity);
+    
   } catch (error) {
-    console.error("⚠️  Activity error:", error.message);
+    console.error("⚠️  Error in activity:", error.message);
+  } finally {
     state.isProcessing = false;
-    setTimeout(startHumanLikeActivity, randomDelay(5000, 10000));
   }
 }
 
@@ -423,287 +563,144 @@ async function exploreRandomly() {
   if (!state.exploreCenter) state.exploreCenter = currentBot.entity.position.clone();
 
   const numStops = randomDelay(2, 4);
-  console.log(`🚶 Exploring ${numStops} locations...`);
-
+  
   for (let i = 0; i < numStops; i++) {
-    if (state.inCombat || isSwitching) return;
+    if (state.isSleeping || state.inCombat || (config.autoSleep && isNightTime())) return;
 
+    const maxDistance = config.exploreRadius || 20;
     const angle = randomFloat(0, Math.PI * 2);
-    const distance = randomFloat(5, 20);
+    const distance = randomFloat(5, maxDistance);
+
     const targetX = state.exploreCenter.x + Math.cos(angle) * distance;
     const targetZ = state.exploreCenter.z + Math.sin(angle) * distance;
 
-    console.log(`  → Location ${i + 1}/${numStops}`);
-    const goal = new goals.GoalNear(targetX, state.exploreCenter.y, targetZ, 2);
+    const tolerance = randomFloat(1.5, 3);
+    const goal = new goals.GoalNear(targetX, currentBot.entity.position.y, targetZ, tolerance);
     currentBot.pathfinder.setGoal(goal);
 
-    await waitForArrival(targetX, state.exploreCenter.y, targetZ, 3, 10000);
+    // Wait for arrival or timeout
+    await new Promise(resolve => currentBot.once('goal_reached', resolve)).catch(() => {});
     currentBot.pathfinder.setGoal(null);
 
-    if (shouldDoActivity(0.6)) await lookAround();
+    await lookAround();
     await delay(randomDelay(1000, 3000));
   }
 }
 
 async function buildActivity() {
+  if (!config.buildingEnabled) return;
   const numBlocks = randomDelay(1, 3);
-  console.log(`🏗️  Building ${numBlocks} blocks...`);
-
+  
   for (let i = 0; i < numBlocks; i++) {
-    if (isSwitching) return;
+    if (currentBotName === 'HeroBrine' && !isCreativeMode()) {
+        return; 
+    }
     await placeAndBreakBlock();
-    if (i < numBlocks - 1) await delay(randomDelay(2000, 5000));
+    if (i < numBlocks - 1) await delay(randomDelay(1000, 3000));
   }
 }
 
 async function idleActivity() {
-  const idleTime = randomDelay(3000, 8000);
-  console.log(`😴 Idle for ${(idleTime / 1000).toFixed(1)}s...`);
-  
-  const actions = randomDelay(2, 3);
-  for (let i = 0; i < actions; i++) {
-    if (isSwitching) return;
-    await lookAround();
-    await delay(randomDelay(1000, 2000));
-  }
+  await delay(randomDelay(3000, 10000));
 }
 
 async function placeAndBreakBlock() {
-  const blockType = "dirt";
-  const item = await ensureInventoryItem(blockType, 1);
-  if (!item) {
-    console.log(`  ⚠️  No ${blockType} available`);
-    return;
-  }
-
-  await currentBot.equip(item, "hand");
-  const pos = currentBot.entity.position.floored();
-
-  const directions = [
-    { pos: new Vec3(pos.x + 1, pos.y, pos.z), ref: new Vec3(pos.x + 1, pos.y - 1, pos.z), vec: new Vec3(0, 1, 0) },
-    { pos: new Vec3(pos.x - 1, pos.y, pos.z), ref: new Vec3(pos.x - 1, pos.y - 1, pos.z), vec: new Vec3(0, 1, 0) },
-    { pos: new Vec3(pos.x, pos.y, pos.z + 1), ref: new Vec3(pos.x, pos.y - 1, pos.z + 1), vec: new Vec3(0, 1, 0) },
-    { pos: new Vec3(pos.x, pos.y, pos.z - 1), ref: new Vec3(pos.x, pos.y - 1, pos.z - 1), vec: new Vec3(0, 1, 0) },
-  ].sort(() => Math.random() - 0.5);
-
-  let placed = false;
-  for (const attempt of directions) {
-    const targetBlock = currentBot.blockAt(attempt.pos);
-    const referenceBlock = currentBot.blockAt(attempt.ref);
-
-    if (targetBlock?.name === "air" && referenceBlock?.name !== "air") {
-      try {
-        await currentBot.placeBlock(referenceBlock, attempt.vec);
-        await delay(1000);
-        
-        const placedBlock = currentBot.blockAt(attempt.pos);
-        if (placedBlock?.name === blockType && currentBot.canDigBlock(placedBlock)) {
-          await currentBot.dig(placedBlock);
-          console.log("  ✅ Placed and broke block");
-          placed = true;
-        }
-        break;
-      } catch (err) {}
-    }
-  }
-  
-  if (!placed) {
-    console.log("  ⚠️  Could not place block");
-  }
-}
-
-async function waitForArrival(x, y, z, threshold, timeout = 10000) {
-  return new Promise((resolve) => {
-    const startTime = Date.now();
-    const checkArrival = setInterval(() => {
-      const distance = currentBot.entity.position.distanceTo({ x, y, z });
-      const elapsed = Date.now() - startTime;
-
-      if (distance < threshold || elapsed > timeout || isSwitching) {
-        clearInterval(checkArrival);
-        resolve();
-      }
-    }, 100);
-  });
-}
-
-function isNightTime() {
-  return currentBot.time?.timeOfDay >= 13000 && currentBot.time?.timeOfDay < 23000;
-}
-
-async function tryToSleep() {
-  const state = getCurrentBotState();
-  if (!state || state.isSleeping) return;
+  const blockType = config.blockType || "dirt";
+  let placedBlockPosition = null;
 
   try {
-    state.isSleeping = state.isProcessing = true;
-    currentBot.pathfinder.setGoal(null);
+    const item = await ensureInventoryItem(blockType, 1);
+    if (!item) return;
 
-    console.log("🌙 Night time - attempting to sleep...");
+    await currentBot.equip(item, "hand");
+    const pos = currentBot.entity.position.floored().offset(0, -1, 0); 
 
-    const bedNames = ["red_bed", "blue_bed", "white_bed", "black_bed"];
-    
-    let bedBlock = currentBot.findBlock({
-      matching: (block) => bedNames.includes(block.name),
-      maxDistance: 16,
-    });
+    const refBlock = currentBot.blockAt(pos);
+    const targetBlockPos = pos.offset(0, 1, 0);
 
-    if (bedBlock) {
-      console.log(`  ✅ Found existing bed`);
-      const distance = bedBlock.position.distanceTo(currentBot.entity.position);
-      if (distance > 3) {
-        console.log(`  🚶 Walking to bed (${distance.toFixed(1)} blocks)...`);
-        const goal = new goals.GoalBlock(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z);
-        currentBot.pathfinder.setGoal(goal);
-        await waitForArrival(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 3, 10000);
-        currentBot.pathfinder.setGoal(null);
-      }
-    } else {
-      console.log("  🛏️  No bed found, placing one...");
-      const bedItem = await ensureBedInInventory();
-      
-      if (bedItem) {
-        await currentBot.equip(bedItem, "hand");
-        const pos = currentBot.entity.position.floored();
+    if (refBlock && refBlock.name !== "air" && currentBot.blockAt(targetBlockPos)?.name === "air") {
+      await currentBot.placeBlock(refBlock, new Vec3(0, 1, 0));
+      await delay(randomDelay(400, 800));
+
+      const verifyBlock = currentBot.blockAt(targetBlockPos);
+      if (verifyBlock?.name === blockType) {
+        placedBlockPosition = targetBlockPos;
         
-        const directions = [
-          { dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 }
-        ];
+        await delay(randomDelay(1000, 3000));
         
-        for (const dir of directions) {
-          const refPos = new Vec3(pos.x + dir.dx, pos.y - 1, pos.z + dir.dz);
-          const refBlock = currentBot.blockAt(refPos);
-          const bedPos = new Vec3(pos.x + dir.dx, pos.y, pos.z + dir.dz);
-          const targetBlock = currentBot.blockAt(bedPos);
-          
-          if (refBlock && refBlock.name !== "air" && targetBlock && targetBlock.name === "air") {
-            try {
-              await currentBot.placeBlock(refBlock, new Vec3(0, 1, 0));
-              await delay(1000);
-              
-              bedBlock = currentBot.findBlock({
-                matching: (block) => bedNames.includes(block.name),
-                maxDistance: 5,
-              });
-              
-              if (bedBlock) {
-                console.log(`  ✅ Bed placed successfully at (${bedPos.x}, ${bedPos.y}, ${bedPos.z})`);
-                break;
-              }
-            } catch (err) {
-              console.log(`  ⚠️  Could not place bed at (${bedPos.x}, ${bedPos.y}, ${bedPos.z})`);
-            }
-          }
+        if (currentBot.canDigBlock(verifyBlock)) {
+          await currentBot.dig(verifyBlock);
         }
-      } else {
-        console.log("  ⚠️  No bed available in inventory");
       }
     }
-
-    if (bedBlock) {
-      console.log("  💤 Attempting to sleep...");
-      try {
-        await currentBot.sleep(bedBlock);
-        console.log("  ✅ Sleeping peacefully...");
-
-        currentBot.once("wake", () => {
-          console.log("  ☀️  Good morning!");
-          state.isSleeping = state.isProcessing = false;
-          setTimeout(startHumanLikeActivity, 2000);
-        });
-        return;
-      } catch (sleepError) {
-        console.log(`  ⚠️  Could not sleep: ${sleepError.message}`);
-      }
-    } else {
-      console.log("  ⚠️  No bed available for sleeping");
-    }
-    
   } catch (error) {
-    console.log(`  ⚠️  Sleep setup error: ${error.message}`);
-  } finally {
-    state.isSleeping = state.isProcessing = false;
-    setTimeout(startHumanLikeActivity, 5000);
   }
 }
 
-// Event handlers
+
+// ===== BOT HANDLERS & INITIALIZATION =====
+
 function setupBotHandlers() {
-  currentBot.loadPlugin(pathfinder);
-
-  currentBot.on("spawn", () => {
-    console.log(`✅ ${currentBotName} spawned!`);
-    const pos = currentBot.entity.position;
-    console.log(`📍 Position: X=${pos.x.toFixed(1)}, Y=${pos.y.toFixed(1)}, Z=${pos.z.toFixed(1)}`);
-
-    const state = getCurrentBotState();
-    state.exploreCenter = pos.clone();
-    state.lastPacketTime = Date.now();
-
+  currentBot.once("spawn", () => {
     mcData = require("minecraft-data")(currentBot.version);
     Item = require("prismarine-item")(currentBot.version);
     
+    currentBot.loadPlugin(pathfinder);
     const defaultMove = new Movements(currentBot, mcData);
-    defaultMove.canDig = false;
     currentBot.pathfinder.setMovements(defaultMove);
+    
+    console.log(`\n🎉 ${currentBotName} has spawned!`);
 
-    setTimeout(() => {
-      console.log(`🎮 Starting ${currentBotName}...\n`);
-      startAntiAFKMonitoring();
-      startKeepAliveMonitoring();
-      
-      if (currentBotName === "CraftMan") startGamemodeMonitoring();
-      else if (currentBotName === "HeroBrine") startCombatMonitoring();
-      
-      startHumanLikeActivity();
-    }, 3000);
-  });
-
-  currentBot.on("packet", () => {
-    const state = getCurrentBotState();
-    if (state) state.lastPacketTime = Date.now();
-  });
-
-  currentBot.on("end", () => {
-    console.log(`🔌 ${currentBotName} disconnected`);
-    if (!isSwitching) {
-      setTimeout(() => switchBot(), 5000);
+    if (currentBotName === "CraftMan") {
+      startGamemodeMonitoring();
+    } else if (currentBotName === "HeroBrine") {
+      startCombatMonitoring();
     }
+    
+    startAntiAFKMonitoring();
+    startKeepAliveMonitoring();
+    getCurrentBotState().exploreCenter = currentBot.entity.position.clone();
+    
+    botActivityInterval = setInterval(startHumanLikeActivity, 3000);
   });
-
+  
+  // CRITICAL: Handle disconnect/kicked events to switch bots
   currentBot.on("kicked", (reason) => {
-    console.log(`⚠️  ${currentBotName} kicked:`, reason);
-    if (!isSwitching) {
-      setTimeout(() => switchBot(), 5000);
+    console.error(`\n🛑 ${currentBotName} was kicked! Reason: ${reason}`);
+    switchBot(); 
+  });
+
+  currentBot.on("error", (err) => {
+    console.error(`\n❌ ${currentBotName} encountered an error: ${err.message}`);
+    // Protocol errors are fatal, switch immediately
+    if (err.message.includes('PartialReadError') || err.message.includes('ProtocolError')) {
+      console.error('CRITICAL PROTOCOL ERROR DETECTED. SWITCHING BOTS IMMEDIATELY.');
+      setTimeout(switchBot, 5000); 
     }
   });
 
-  currentBot.on("death", () => {
-    console.log(`💀 ${currentBotName} died!`);
-    const state = getCurrentBotState();
-    if (state) state.exploreCenter = null;
+  currentBot.on("end", (reason) => {
+    console.log(`\n🔌 ${currentBotName} disconnected. Reason: ${reason}`);
+    // Only switch if the disconnect was not manual (i.e., not from currentBot.quit())
+    if (reason !== "bot.quit") { 
+      switchBot(); 
+    }
   });
-
-  currentBot.on("chat", (username, message) => {
-    console.log(`💬 <${username}> ${message}`);
-    const state = getCurrentBotState();
-    if (state) state.lastActivityTime = Date.now();
+  
+  currentBot.on('death', () => {
+    console.log(`💀 ${currentBotName} died! Attempting to switch...`);
+    setTimeout(switchBot, 1000); 
   });
-
-  currentBot.on("physicsTick", () => {
-    if (shouldDoActivity(0.002)) lookAround().catch(() => {});
+  
+  // Use events to reliably update the isSleeping state
+  currentBot.on('sleep', () => {
+      getCurrentBotState().isSleeping = true;
+  });
+  
+  currentBot.on('wake', () => {
+      getCurrentBotState().isSleeping = false;
   });
 }
 
-// Initialize
+// Start the whole system
 startBotCycle();
-
-process.on("SIGINT", () => {
-  console.log("\n👋 Shutting down...");
-  if (botSwitchInterval) clearInterval(botSwitchInterval);
-  for (const botName of ["CraftMan", "HeroBrine"]) cleanupBot(botName);
-  if (currentBot && currentBot.end) {
-    currentBot.end("Shutdown");
-  }
-  process.exit(0);
-});
