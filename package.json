@@ -1,0 +1,28 @@
+{
+  "name": "minecraft-dual-bot",
+  "version": "1.0.0",
+  "description": "A dual Minecraft bot system that automatically switches between CraftMan and HeroBrine for 24/7 server presence",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node bot.js"
+  },
+  "keywords": [
+    "minecraft",
+    "bot",
+    "aternos",
+    "dual-bot",
+    "mineflayer",
+    "automation"
+  ],
+  "author": "Albin",
+  "license": "MIT",
+  "dependencies": {
+    "mineflayer": "^4.25.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "vec3": "^0.1.7"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
