@@ -1,24 +1,27 @@
 {
-  "name": "minecraft-dual-bot",
+  "name": "aternos-dual-bot",
   "version": "1.0.0",
-  "description": "A dual Minecraft bot system that automatically switches between CraftMan and HeroBrine",
+  "description": "Dual Minecraft bot for Aternos server management and activities.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "bot": "node bot.js"
   },
-  "keywords": ["minecraft", "bot", "aternos", "dual-bot"],
-  "author": "YourName",
-  "license": "MIT",
+  "keywords": [
+    "minecraft",
+    "mineflayer",
+    "bot",
+    "aternos"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "express": "^4.21.2",
-    "mineflayer": "^4.25.0",
-    "mineflayer-pathfinder": "^2.4.5",
-    "vec3": "^0.1.7",
-    "prismarine-item": "^1.17.0",
-    "minecraft-data": "^3.100.0"
-  },
-  "engines": {
-    "node": ">=14.0.0"
+    "dotenv": "^16.4.5",
+    "mineflayer": "^4.33.0",
+    "mineflayer-pathfinder": "^2.4.0",
+    "prismarine-item": "^2.1.0",
+    "minecraft-data": "^3.28.0",
+    "express": "^4.19.2",
+    "vec3": "^0.1.7"
   }
 }
