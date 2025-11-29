@@ -6,6 +6,10 @@ services:
     buildCommand: npm install
     startCommand: npm start
     envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
       - key: MINECRAFT_HOST
         value: gameplannet.aternos.me
       - key: MINECRAFT_PORT  
@@ -14,8 +18,6 @@ services:
         value: 1.21.10
       - key: MINECRAFT_AUTH
         value: offline
-      - key: CRAFTMAN_USERNAME
+      - key: BOT_USERNAME
         value: CraftMan
-      - key: HEROBRINE_USERNAME
-        value: HeroBrine
     healthCheckPath: /health
