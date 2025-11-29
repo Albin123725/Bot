@@ -1,22 +1,13 @@
 {
   "name": "minecraft-dual-bot",
   "version": "2.0.0",
-  "description": "Advanced Minecraft Dual Bot System with CraftMan & HeroBrine for 24/7 Aternos server presence",
+  "description": "Minecraft Dual Bot System with guaranteed port binding",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "bot": "node bot.js"
+    "dev": "node server.js"
   },
-  "keywords": [
-    "minecraft",
-    "bot",
-    "aternos",
-    "dual-bot",
-    "mineflayer",
-    "automation",
-    "24/7"
-  ],
+  "keywords": ["minecraft", "bot", "aternos"],
   "author": "YourName",
   "license": "MIT",
   "dependencies": {
