@@ -1,15 +1,11 @@
 {
   "name": "minecraft-dual-bot",
-  "version": "2.0.0",
-  "description": "Minecraft Dual Bot System with guaranteed port binding",
+  "version": "2.1.0",
+  "description": "Minecraft Dual Bot with Home Location System",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
-  "keywords": ["minecraft", "bot", "aternos"],
-  "author": "YourName",
-  "license": "MIT",
   "dependencies": {
     "express": "^4.21.2",
     "mineflayer": "^4.25.0",
@@ -17,8 +13,5 @@
     "vec3": "^0.1.7",
     "prismarine-item": "^1.17.0",
     "minecraft-data": "^3.100.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
   }
 }
