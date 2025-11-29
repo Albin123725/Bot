@@ -2,7 +2,7 @@ const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const Vec3 = require("vec3");
 
-console.log("🎮 Minecraft Dual Bot System with Home Location");
+console.log("🎮 Minecraft Dual Bot System with Fixed Home Location");
 console.log("=".repeat(50));
 
 // Bot configurations
@@ -31,8 +31,8 @@ let Item = null;
 let botSwitchInterval = null;
 let isSwitching = false;
 
-// Home location (will be set when bot spawns)
-let homeLocation = null;
+// FIXED HOME LOCATION
+const FIXED_HOME_LOCATION = new Vec3(217, 11, -525);
 
 // Bot state management
 const botStates = {
@@ -48,7 +48,7 @@ const botStates = {
     keepAliveInterval: null,
     inCombat: false,
     lastPacketTime: Date.now(),
-    homeLocation: null,
+    homeLocation: FIXED_HOME_LOCATION,
     hasBed: false
   },
   HeroBrine: {
@@ -65,7 +65,7 @@ const botStates = {
     inCombat: false,
     currentTarget: null,
     lastPacketTime: Date.now(),
-    homeLocation: null,
+    homeLocation: FIXED_HOME_LOCATION,
     hasBed: false
   }
 };
@@ -96,12 +96,11 @@ function getCurrentBotState() {
 }
 
 // Home location management
-function setHomeLocation(position) {
+function setHomeLocation() {
   const state = getCurrentBotState();
-  if (state && position) {
-    state.homeLocation = position.clone();
-    homeLocation = position.clone();
-    console.log(`🏠 Home location set to: (${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)})`);
+  if (state) {
+    state.homeLocation = FIXED_HOME_LOCATION.clone();
+    console.log(`🏠 HOME LOCATION SET TO: (217, 11, -525)`);
     
     // Set spawnpoint at home location
     try {
@@ -115,24 +114,27 @@ function setHomeLocation(position) {
 
 async function goHome() {
   const state = getCurrentBotState();
-  if (!state || !state.homeLocation || state.isGoingHome || state.isSleeping) return;
+  if (!state || state.isGoingHome || state.isSleeping) return;
   
   state.isGoingHome = true;
   state.isProcessing = true;
   
-  console.log("🌙 Night is coming - returning home...");
+  console.log("🏠 Returning to home location...");
   
   try {
-    const home = state.homeLocation;
-    const distance = currentBot.entity.position.distanceTo(home);
+    const home = FIXED_HOME_LOCATION;
+    const currentPos = currentBot.entity.position;
+    const distance = currentPos.distanceTo(home);
     
-    console.log(`  🏠 Going home (${distance.toFixed(1)} blocks away)...`);
+    console.log(`  📍 Current position: (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)}, ${currentPos.z.toFixed(1)})`);
+    console.log(`  🎯 Home position: (${home.x}, ${home.y}, ${home.z})`);
+    console.log(`  📏 Distance: ${distance.toFixed(1)} blocks`);
     
     const goal = new goals.GoalNear(home.x, home.y, home.z, 2);
     currentBot.pathfinder.setGoal(goal);
     
     // Wait until arrived or timeout
-    await waitForArrival(home.x, home.y, home.z, 3, 20000);
+    await waitForArrival(home.x, home.y, home.z, 3, 30000);
     
     currentBot.pathfinder.setGoal(null);
     console.log("  ✅ Arrived at home location");
@@ -227,12 +229,10 @@ async function handleNightTime() {
   const state = getCurrentBotState();
   if (!state || state.isSleeping || state.isGoingHome || state.isProcessing) return;
   
-  if (isDusk()) {
-    console.log("🌅 Dusk is approaching...");
-    // Start heading home when dusk begins
+  if (isDusk() || isNightTime()) {
+    console.log("🌙 Night/Dusk detected - going home to sleep...");
     await goHome();
-  } else if (isNightTime() && !state.isSleeping) {
-    console.log("🌙 Night time - preparing to sleep...");
+    await delay(2000);
     await tryToSleep();
   }
 }
@@ -245,7 +245,7 @@ async function tryToSleep() {
     state.isSleeping = state.isProcessing = true;
     currentBot.pathfinder.setGoal(null);
 
-    console.log("😴 Attempting to sleep for the night...");
+    console.log("😴 Attempting to sleep...");
 
     // Check if already sleeping
     if (currentBot.isSleeping) {
@@ -259,17 +259,14 @@ async function tryToSleep() {
     ];
 
     // First, try to find existing bed at home
-    let bedBlock = null;
-    if (state.homeLocation) {
-      bedBlock = currentBot.findBlock({
-        matching: (block) => bedNames.includes(block.name),
-        maxDistance: 10, // Search around home area
-        point: state.homeLocation
-      });
-    }
+    let bedBlock = currentBot.findBlock({
+      matching: (block) => bedNames.includes(block.name),
+      maxDistance: 10,
+      point: FIXED_HOME_LOCATION
+    });
 
     if (bedBlock) {
-      console.log(`  ✅ Found bed near home at (${bedBlock.position.x}, ${bedBlock.position.y}, ${bedBlock.position.z})`);
+      console.log(`  ✅ Found bed at (${bedBlock.position.x}, ${bedBlock.position.y}, ${bedBlock.position.z})`);
       const distance = currentBot.entity.position.distanceTo(bedBlock.position);
       
       if (distance > 3) {
@@ -283,14 +280,13 @@ async function tryToSleep() {
       console.log("  💤 Getting into bed...");
       try {
         await currentBot.sleep(bedBlock);
-        console.log("  ✅ Successfully sleeping through the night...");
+        console.log("  ✅ Successfully sleeping...");
         state.hasBed = true;
 
         currentBot.once("wake", () => {
           console.log("  ☀️  Good morning! Woke up refreshed");
           state.isSleeping = false;
           state.isProcessing = false;
-          // Resume activities after waking
           setTimeout(() => startHumanLikeActivity(), 2000);
         });
         return;
@@ -301,24 +297,37 @@ async function tryToSleep() {
 
     // No bed found, try to place one at home
     console.log("  🛏️  No bed found, placing one at home...");
+    
+    // Get creative mode bed
+    if (isCreativeMode()) {
+      try {
+        // Force creative mode first
+        currentBot.chat("/gamemode creative");
+        await delay(2000);
+        
+        // Get bed from creative inventory
+        await getItemFromCreativeInventory("red_bed", 1);
+        await delay(1000);
+      } catch (error) {
+        console.log("  ⚠️  Could not get creative mode bed");
+      }
+    }
+
     const bedItem = await ensureBedInInventory();
     
-    if (bedItem && state.homeLocation) {
+    if (bedItem) {
       await currentBot.equip(bedItem, "hand");
-      const homePos = state.homeLocation;
       
-      // Try to place bed around home location
+      // Try to place bed at home location
       const directions = [
         { dx: 1, dz: 0 }, { dx: -1, dz: 0 }, 
-        { dx: 0, dz: 1 }, { dx: 0, dz: -1 },
-        { dx: 2, dz: 0 }, { dx: -2, dz: 0 },
-        { dx: 0, dz: 2 }, { dx: 0, dz: -2 }
+        { dx: 0, dz: 1 }, { dx: 0, dz: -1 }
       ];
 
       for (const dir of directions) {
-        const refPos = new Vec3(homePos.x + dir.dx, homePos.y - 1, homePos.z + dir.dz);
+        const refPos = new Vec3(FIXED_HOME_LOCATION.x + dir.dx, FIXED_HOME_LOCATION.y - 1, FIXED_HOME_LOCATION.z + dir.dz);
         const refBlock = currentBot.blockAt(refPos);
-        const bedPos = new Vec3(homePos.x + dir.dx, homePos.y, homePos.z + dir.dz);
+        const bedPos = new Vec3(FIXED_HOME_LOCATION.x + dir.dx, FIXED_HOME_LOCATION.y, FIXED_HOME_LOCATION.z + dir.dz);
         const targetBlock = currentBot.blockAt(bedPos);
         
         if (refBlock && refBlock.name !== "air" && targetBlock && targetBlock.name === "air") {
@@ -333,7 +342,7 @@ async function tryToSleep() {
             });
             
             if (bedBlock) {
-              console.log(`  ✅ Successfully placed bed at home (${bedPos.x}, ${bedPos.y}, ${bedPos.z})`);
+              console.log(`  ✅ Successfully placed bed at (${bedPos.x}, ${bedPos.y}, ${bedPos.z})`);
               
               try {
                 await currentBot.sleep(bedBlock);
@@ -358,7 +367,7 @@ async function tryToSleep() {
       }
       console.log("  ❌ Could not place bed around home");
     } else {
-      console.log("  ❌ No bed available or no home location");
+      console.log("  ❌ No bed available in inventory");
     }
     
   } catch (error) {
@@ -372,20 +381,47 @@ async function tryToSleep() {
 }
 
 // Core bot functions
+function isCreativeMode() {
+  return currentBot?.player?.gamemode === 1;
+}
+
+async function getItemFromCreativeInventory(itemName, count = 1) {
+  if (!isCreativeMode() || !Item) return null;
+
+  try {
+    const itemId = mcData.itemsByName[itemName]?.id;
+    if (!itemId) {
+      console.log(`  ⚠️  Item '${itemName}' not found`);
+      return null;
+    }
+
+    const targetSlot = 36;
+    const item = new Item(itemId, count, null);
+    
+    await currentBot.creative.setInventorySlot(targetSlot, item);
+    await delay(800);
+
+    const slotItem = currentBot.inventory.slots[targetSlot];
+    if (slotItem && slotItem.name === itemName) {
+      console.log(`  ✅ [Creative] Got ${count}x ${itemName}`);
+      return slotItem;
+    }
+    
+    return null;
+  } catch (error) {
+    console.log(`  ⚠️  Failed to get ${itemName}: ${error.message}`);
+    return null;
+  }
+}
+
 async function ensureBedInInventory() {
   const bedNames = ["red_bed", "blue_bed", "white_bed", "black_bed"];
   const existingBed = currentBot.inventory.items().find(item => bedNames.includes(item.name));
-  if (existingBed) return existingBed;
-
-  if (isCreativeMode()) {
-    console.log("  🎨 Getting bed from creative inventory...");
-    // Creative mode item acquisition would go here
+  if (existingBed) {
+    console.log("  ✅ Bed found in inventory");
+    return existingBed;
   }
   return null;
-}
-
-function isCreativeMode() {
-  return currentBot?.player?.gamemode === 1;
 }
 
 async function lookAround() {
@@ -417,6 +453,21 @@ async function performRandomAction() {
   } catch (error) {}
 }
 
+// IMMEDIATE SLEEP FUNCTION
+async function sleepImmediately() {
+  const state = getCurrentBotState();
+  if (!state || state.isSleeping) return;
+
+  console.log("🌙 IMMEDIATE SLEEP COMMAND - Going home to sleep...");
+  
+  // Go home first
+  await goHome();
+  await delay(2000);
+  
+  // Then sleep
+  await tryToSleep();
+}
+
 // Activity system
 async function startHumanLikeActivity() {
   const state = getCurrentBotState();
@@ -427,16 +478,16 @@ async function startHumanLikeActivity() {
   try {
     state.activityCount++;
     
-    // Check time of day first
-    if (isDusk() || isNightTime()) {
-      console.log("🌙 Daytime ending - handling night routine...");
+    // Check if it's night time - if so, sleep immediately
+    if (isNightTime() || isDusk()) {
+      console.log("🌙 Night time detected - sleeping immediately...");
       state.isProcessing = false;
-      await handleNightTime();
+      await sleepImmediately();
       return;
     }
 
     // Daytime activities
-    console.log(`\n🎯 ${currentBotName} Activity #${state.activityCount} (Daytime)`);
+    console.log(`\n🎯 ${currentBotName} Activity #${state.activityCount}`);
 
     const activity = randomChoice(["explore", "explore", "build", "idle"]);
     console.log(`🎲 Activity: ${activity}`);
@@ -469,21 +520,20 @@ async function startHumanLikeActivity() {
 async function exploreRandomly() {
   const state = getCurrentBotState();
   if (!state.exploreCenter) {
-    // Set explore center to home location if available
-    state.exploreCenter = state.homeLocation ? state.homeLocation.clone() : currentBot.entity.position.clone();
+    state.exploreCenter = FIXED_HOME_LOCATION.clone();
   }
 
   const numStops = randomDelay(2, 4);
   console.log(`🚶 Exploring ${numStops} locations from home...`);
 
   for (let i = 0; i < numStops; i++) {
-    if (state.inCombat || isSwitching || isDusk()) {
-      console.log("  ⚠️  Stopping exploration (dusk/night approaching)");
+    if (state.inCombat || isSwitching || isDusk() || isNightTime()) {
+      console.log("  ⚠️  Stopping exploration (night approaching)");
       return;
     }
 
     const angle = randomFloat(0, Math.PI * 2);
-    const distance = randomFloat(5, 15); // Stay closer to home
+    const distance = randomFloat(5, 15);
     const targetX = state.exploreCenter.x + Math.cos(angle) * distance;
     const targetZ = state.exploreCenter.z + Math.sin(angle) * distance;
 
@@ -501,7 +551,8 @@ async function exploreRandomly() {
 
 async function buildActivity() {
   console.log("🏗️  Building near home...");
-  await placeAndBreakBlock();
+  await lookAround();
+  await delay(1000);
 }
 
 async function idleActivity() {
@@ -513,12 +564,6 @@ async function idleActivity() {
     await lookAround();
     await delay(randomDelay(1000, 2000));
   }
-}
-
-async function placeAndBreakBlock() {
-  // Simple block placement near home
-  await lookAround();
-  await delay(1000);
 }
 
 async function waitForArrival(x, y, z, threshold, timeout = 10000) {
@@ -549,16 +594,14 @@ function setupBotHandlers() {
   currentBot.on("spawn", () => {
     console.log(`\n✅ ${currentBotName} spawned!`);
     const pos = currentBot.entity.position;
-    console.log(`📍 Position: X=${pos.x.toFixed(1)}, Y=${pos.y.toFixed(1)}, Z=${pos.z.toFixed(1)}`);
+    console.log(`📍 Current position: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
 
     const state = getCurrentBotState();
     
-    // Set home location on first spawn
-    if (!state.homeLocation) {
-      setHomeLocation(pos);
-    }
+    // Set fixed home location
+    setHomeLocation();
     
-    state.exploreCenter = state.homeLocation ? state.homeLocation.clone() : pos.clone();
+    state.exploreCenter = FIXED_HOME_LOCATION.clone();
     state.lastPacketTime = Date.now();
 
     mcData = require("minecraft-data")(currentBot.version);
@@ -568,11 +611,19 @@ function setupBotHandlers() {
     defaultMove.canDig = false;
     currentBot.pathfinder.setMovements(defaultMove);
 
-    console.log(`🏠 Home system: ${state.homeLocation ? 'ACTIVE' : 'SET'}`);
+    console.log(`🏠 Home system: ACTIVE at (217, 11, -525)`);
     
     setTimeout(() => {
-      console.log(`🎮 Starting ${currentBotName} with home location system...`);
-      startHumanLikeActivity();
+      console.log(`🎮 Starting ${currentBotName}...`);
+      
+      // CHECK IF IT'S NIGHT TIME - SLEEP IMMEDIATELY IF SO
+      if (isNightTime() || isDusk()) {
+        console.log("🌙 Current time: NIGHT - Sleeping immediately...");
+        sleepImmediately();
+      } else {
+        console.log("☀️  Current time: DAY - Starting activities...");
+        startHumanLikeActivity();
+      }
     }, 3000);
   });
 
@@ -594,10 +645,7 @@ function setupBotHandlers() {
   currentBot.on("death", () => {
     console.log(`💀 ${currentBotName} died! Respawning at home...`);
     const state = getCurrentBotState();
-    if (state) {
-      state.inCombat = false;
-      state.deaths = (state.deaths || 0) + 1;
-    }
+    if (state) state.inCombat = false;
   });
 
   currentBot.on("chat", (username, message) => {
@@ -609,36 +657,28 @@ function setupBotHandlers() {
   });
 }
 
-// Time monitoring for night/day cycles
+// Time monitoring
 function startTimeMonitoring() {
   setInterval(() => {
     if (currentBot && currentBot.time) {
       const time = currentBot.time.timeOfDay;
-      if (time === 12000) {
-        console.log("🌅 Noon reached");
-      } else if (time === 13000) {
-        console.log("🌆 Dusk began");
-      } else if (time === 18000) {
-        console.log("🌙 Full night");
-      } else if (time === 23000) {
-        console.log("🌄 Dawn began"); 
-      } else if (time === 0) {
-        console.log("☀️  Morning reached");
-      }
+      if (time === 12000) console.log("🌅 Noon");
+      else if (time === 13000) console.log("🌆 Dusk began - going home");
+      else if (time === 18000) console.log("🌙 Full night");
+      else if (time === 23000) console.log("🌄 Dawn began"); 
+      else if (time === 0) console.log("☀️  Morning");
     }
-  }, 30000); // Check every 30 seconds
+  }, 30000);
 }
 
 // Initialize system
 function initializeSystem() {
   console.log('\n' + '='.repeat(50));
-  console.log('🏠 MINECRAFT DUAL BOT - HOME LOCATION SYSTEM');
+  console.log('🏠 FIXED HOME LOCATION SYSTEM');
   console.log('='.repeat(50));
-  console.log('✨ Night Behavior:');
-  console.log('  • Auto-return home at dusk');
-  console.log('  • Automatic bed placement');
-  console.log('  • Sleep through night');
-  console.log('  • Resume activities at dawn');
+  console.log('📍 Home: (217, 11, -525)');
+  console.log('🌙 Behavior: Immediate sleep at night');
+  console.log('🎯 Bots will always return to this location');
   console.log('='.repeat(50));
   
   startBotCycle();
@@ -649,7 +689,7 @@ function initializeSystem() {
 initializeSystem();
 
 process.on("SIGINT", () => {
-  console.log("\n👋 Shutting down home location system...");
+  console.log("\n👋 Shutting down...");
   if (botSwitchInterval) clearInterval(botSwitchInterval);
   for (const botName of ["CraftMan", "HeroBrine"]) cleanupBot(botName);
   if (currentBot && currentBot.end) currentBot.end("System shutdown");
