@@ -4,20 +4,10 @@ services:
     env: node
     plan: free
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
-      - key: MINECRAFT_HOST
-        value: gameplannet.aternos.me
-      - key: MINECRAFT_PORT  
-        value: 51270
-      - key: MINECRAFT_VERSION
-        value: 1.21.10
-      - key: MINECRAFT_AUTH
-        value: offline
-      - key: BOT_USERNAME
-        value: CraftMan
     healthCheckPath: /health
