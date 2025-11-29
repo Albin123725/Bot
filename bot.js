@@ -1,20 +1,19 @@
-require("dotenv").config();
 const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const Vec3 = require("vec3");
 
-// Bot configurations
+// Bot configurations - using environment variables with fallbacks
 const botConfigs = {
   CraftMan: {
-    host: process.env.MINECRAFT_HOST || "localhost",
-    port: parseInt(process.env.MINECRAFT_PORT, 10) || 25565,
+    host: process.env.MINECRAFT_HOST || "gameplannet.aternos.me",
+    port: parseInt(process.env.MINECRAFT_PORT, 10) || 51270,
     username: process.env.CRAFTMAN_USERNAME || "CraftMan",
     version: process.env.MINECRAFT_VERSION || "1.21.10",
     auth: process.env.MINECRAFT_AUTH || "offline"
   },
   HeroBrine: {
-    host: process.env.MINECRAFT_HOST || "localhost",
-    port: parseInt(process.env.MINECRAFT_PORT, 10) || 25565,
+    host: process.env.MINECRAFT_HOST || "gameplannet.aternos.me",
+    port: parseInt(process.env.MINECRAFT_PORT, 10) || 51270,
     username: process.env.HEROBRINE_USERNAME || "HeroBrine",
     version: process.env.MINECRAFT_VERSION || "1.21.10",
     auth: process.env.MINECRAFT_AUTH || "offline"
