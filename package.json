@@ -4,8 +4,8 @@
   "description": "A dual Minecraft bot system that automatically switches between CraftMan and HeroBrine for 24/7 server presence",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js",
-    "dev": "node bot.js"
+    "start": "node server.js",
+    "bot": "node bot.js"
   },
   "keywords": [
     "minecraft",
@@ -19,6 +19,7 @@
   "license": "MIT",
   "dependencies": {
     "dotenv": "^16.6.1",
+    "express": "^4.21.2",
     "mineflayer": "^4.25.0",
     "mineflayer-pathfinder": "^2.4.5",
     "vec3": "^0.1.7",
