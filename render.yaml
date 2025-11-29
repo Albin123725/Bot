@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: minecraft-bot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: MINECRAFT_HOST
+        value: gameplannet.aternos.me
+      - key: MINECRAFT_PORT  
+        value: 51270
+      - key: MINECRAFT_VERSION
+        value: 1.21.10
+      - key: MINECRAFT_AUTH
+        value: offline
+      - key: CRAFTMAN_USERNAME
+        value: CraftMan
+      - key: HEROBRINE_USERNAME
+        value: HeroBrine
