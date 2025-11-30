@@ -1,0 +1,22 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "A sophisticated dual bot system that automatically switches between **CraftMan** and **HeroBrine** to maintain 24/7 presence on your Minecraft server with fixed home location management.",
+  "main": "bot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.1.0",
+    "minecraft-data": "^3.101.0",
+    "mineflayer": "^4.25.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "openai": "^6.9.1",
+    "prismarine-item": "^1.17.0",
+    "vec3": "^0.1.10"
+  }
+}
