@@ -19,14 +19,14 @@ console.log("=".repeat(50));
 const botConfigs = {
   CraftMan: {
     host: process.env.MINECRAFT_HOST || "gameplannet.aternos.me",
-    port: parseInt(process.env.MINECRAFT_PORT, 10) || 51270,
+    port: parseInt(process.env.MINECRAFT_PORT, 10) || 34286,
     username: process.env.CRAFTMAN_USERNAME || "CraftMan",
     version: process.env.MINECRAFT_VERSION || "1.21.10",
     auth: process.env.MINECRAFT_AUTH || "offline"
   },
   HeroBrine: {
     host: process.env.MINECRAFT_HOST || "gameplannet.aternos.me",
-    port: parseInt(process.env.MINECRAFT_PORT, 10) || 51270,
+    port: parseInt(process.env.MINECRAFT_PORT, 10) || 34286,
     username: process.env.HEROBRINE_USERNAME || "HeroBrine", 
     version: process.env.MINECRAFT_VERSION || "1.21.10",
     auth: process.env.MINECRAFT_AUTH || "offline"
